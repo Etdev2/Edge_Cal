@@ -7,8 +7,9 @@ export default defineConfig({
   dbCredentials: {
     // In CI/Vercel this comes from the project Environment Variables panel.
     // Locally, copy .env.example -> .env and set DATABASE_URL.
-    // Falls back to localhost so `npx drizzle-kit push` gives a clear connection error instead of a missing-env crash.
-    url: process.env.DATABASE_URL || "postgresql://postgres:postgres@127.0.0.1:5432/app_db",
+    // Never commit a credential or localhost default. Set DATABASE_URL in the
+    // shell, .env, or Vercel project settings before running Drizzle commands.
+    url: process.env.DATABASE_URL || "",
   },
   verbose: true,
   strict: true,

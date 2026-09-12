@@ -137,7 +137,7 @@ export default function SnapshotDetailPage({
               {snapshot.playerName} ({snapshot.playerTeam})
             </h1>
             <p className="text-xs text-slate-400">
-              {snapshot.side.toUpperCase()} {snapshot.line} {snapshot.market} · Sportsbook Odds: <strong className="text-amber-400">{snapshot.americanOdds > 0 ? `+${snapshot.americanOdds}` : snapshot.americanOdds}</strong>
+              {snapshot.side.toUpperCase()} {snapshot.line} {snapshot.market} · {snapshot.pricingMode === "prediction_market" ? "Prediction price" : "Sportsbook odds"}: <strong className="text-amber-400">{snapshot.pricingMode === "prediction_market" ? `${snapshot.predictionMarketPriceCents}¢ + ${snapshot.predictionMarketCommissionPct}%` : snapshot.americanOdds > 0 ? `+${snapshot.americanOdds}` : snapshot.americanOdds}</strong>
             </p>
           </div>
 
@@ -161,7 +161,7 @@ export default function SnapshotDetailPage({
           <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
             <span className="text-[11px] font-semibold text-slate-400">Break-Even Probability</span>
             <div className="text-3xl font-black text-amber-400 font-mono">{breakEvenPct}%</div>
-            <p className="text-[10px] text-slate-400">At {snapshot.americanOdds > 0 ? `+${snapshot.americanOdds}` : snapshot.americanOdds} odds</p>
+            <p className="text-[10px] text-slate-400">At {snapshot.pricingMode === "prediction_market" ? `${snapshot.predictionMarketPriceCents}¢ after commission` : `${snapshot.americanOdds > 0 ? `+${snapshot.americanOdds}` : snapshot.americanOdds} odds`}</p>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-1">

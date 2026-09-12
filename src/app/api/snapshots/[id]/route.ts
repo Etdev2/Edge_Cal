@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, isDatabaseConfigured } from "@/db";
 import { analysisSnapshots } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { ageRequiredResponse, hasAgeConfirmation } from "@/lib/server/guards";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,8 @@ export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  if (!hasAgeConfirmation(request)) return ageRequiredResponse();
+
   try {
     const { id } = await context.params;
     if (!isDatabaseConfigured()) {

@@ -1,13 +1,13 @@
 # CI Workflow — Manual Add Required
 
-The Phase 0 hygiene includes a CI workflow `.github/workflows/ci.yml` that could not be pushed automatically because the sandbox GitHub App lacks the `workflows` permission (and the provided PAT did not have it either).
+Phase 1 includes a CI workflow `.github/workflows/ci.yml`, but it cannot be pushed automatically because the sandbox GitHub App lacks the `workflows` permission.
 
 ## To add it (1 minute):
 
 1. On GitHub, go to `Etdev2/Edge_Cal` → **Add file** → **Create new file**
 2. Path: `.github/workflows/ci.yml`
 3. Paste the contents from `docs/ci.yml.content` (or copy below)
-4. Commit directly to `main` or to this branch `arena/01a09797-edge-cal`
+4. Commit directly to `main` or to this branch `arena/01a097bb-edge-cal`
 
 Alternatively, mint a new fine-grained PAT with **Actions: Read and write** + **Contents: Read and write** and run:
 
@@ -19,6 +19,6 @@ git push
 ```
 
 ## File is prepared locally in this branch but unstaged:
-`.github/workflows/ci.yml` exists in the working tree of `arena/01a09797-edge-cal` — it will be included if you merge this branch via the GitHub UI and choose to include it, or you can add it manually as above.
+`.github/workflows/ci.yml` is prepared in the local working tree of `arena/01a097bb-edge-cal` but must be added through GitHub UI or a credential with workflow permission, as described above.
 
 Content is also saved at `docs/ci.yml.content` for copy-paste.
