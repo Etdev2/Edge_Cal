@@ -14,11 +14,13 @@ export function AgeGateModal() {
       setIsOpen(true);
     } else {
       setHasConfirmed(true);
+      void fetch("/api/age-gate", { method: "POST" });
     }
   }, []);
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     localStorage.setItem("edge_cal_age_confirmed", "true");
+    await fetch("/api/age-gate", { method: "POST" });
     setHasConfirmed(true);
     setIsOpen(false);
   };

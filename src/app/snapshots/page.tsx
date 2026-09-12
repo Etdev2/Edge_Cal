@@ -23,6 +23,9 @@ interface SnapshotItem {
   line: number;
   side: "over" | "under";
   americanOdds: number;
+  pricingMode?: "sportsbook" | "prediction_market";
+  predictionMarketPriceCents?: number | null;
+  predictionMarketCommissionPct?: number | null;
   breakEvenProb: number;
   hitRate: number;
   hitRateGap: number;
@@ -163,7 +166,7 @@ export default function SnapshotsPage() {
                       {s.playerName} ({s.playerTeam})
                     </h3>
                     <p className="text-xs text-slate-400">
-                      {s.side.toUpperCase()} {s.line} {s.market} · Odds: <span className="text-amber-400 font-mono font-bold">{s.americanOdds > 0 ? `+${s.americanOdds}` : s.americanOdds}</span>
+                      {s.side.toUpperCase()} {s.line} {s.market} · {s.pricingMode === "prediction_market" ? "Price" : "Odds"}: <span className="text-amber-400 font-mono font-bold">{s.pricingMode === "prediction_market" ? `${s.predictionMarketPriceCents}¢ + ${s.predictionMarketCommissionPct}%` : s.americanOdds > 0 ? `+${s.americanOdds}` : s.americanOdds}</span>
                     </p>
                   </div>
 

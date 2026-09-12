@@ -19,6 +19,11 @@ import {
 } from "lucide-react";
 import { SUPPORTED_MARKETS, getMarketById } from "@/lib/domain/markets";
 import { EVIDENCE_WINDOWS, EvidenceWindowType } from "@/lib/domain/evidence";
+import {
+  calculatePredictionMarketBreakEvenProbability,
+  DEFAULT_PREDICTION_MARKET_COMMISSION_PERCENT,
+  DEFAULT_PREDICTION_MARKET_PRICE_CENTS,
+} from "@/lib/domain/predictionMarket";
 import { UncertaintyBar } from "./UncertaintyBar";
 import { GameLogsList } from "./GameLogsList";
 
@@ -55,8 +60,11 @@ interface AnalysisResult {
   line: number;
   side: "over" | "under";
   odds: {
+    pricingMode: "sportsbook" | "prediction_market";
     americanOdds: number;
     oppositeOdds?: number;
+    predictionMarketPriceCents?: number | null;
+    predictionMarketCommissionPct?: number | null;
     breakEvenProb: number;
     breakEvenPercent: string;
     noVig?: {
@@ -107,9 +115,16 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
   const [line, setLine] = useState<number>(24.5);
   const [side, setSide] = useState<"over" | "under">("over");
 
+  const [pricingMode, setPricingMode] = useState<"sportsbook" | "prediction_market">("sportsbook");
   const [americanOdds, setAmericanOdds] = useState<number>(-110);
   const [includeOppositeOdds, setIncludeOppositeOdds] = useState(false);
   const [oppositeOdds, setOppositeOdds] = useState<number>(-110);
+  const [predictionMarketPriceCents, setPredictionMarketPriceCents] = useState<number>(
+    DEFAULT_PREDICTION_MARKET_PRICE_CENTS
+  );
+  const [predictionMarketCommissionPct, setPredictionMarketCommissionPct] = useState<number>(
+    DEFAULT_PREDICTION_MARKET_COMMISSION_PERCENT
+  );
 
   const [evidenceWindow, setEvidenceWindow] = useState<EvidenceWindowType>("season");
   const [selectedOpponent, setSelectedOpponent] = useState<string>("");
@@ -165,24 +180,28 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
     setLine(m.defaultLine);
   };
 
-  // Perform reactive calculation
-  const executeAnalysis = useCallback(async () => {
+  // Perform reactive calculation. The request is debounced and cancelled when an
+  // input changes so a fast mobile edit cannot fan out stale POST requests.
+  const executeAnalysis = useCallback(async (signal?: AbortSignal) => {
     if (!selectedPlayer) return;
 
     setIsCalculating(true);
     setError(null);
 
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         playerId: selectedPlayer.id,
         market: selectedMarket,
         line,
         side,
         americanOdds,
+        pricingMode,
+        predictionMarketPriceCents,
+        predictionMarketCommissionPct,
         evidenceWindow,
       };
 
-      if (includeOppositeOdds && oppositeOdds) {
+      if (pricingMode === "sportsbook" && includeOppositeOdds && oppositeOdds) {
         payload.oppositeOdds = oppositeOdds;
       }
       if (evidenceWindow === "vs_opponent" && selectedOpponent) {
@@ -193,6 +212,7 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal,
       });
 
       const data = await res.json();
@@ -202,19 +222,26 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
         setError(data.error || "Analysis failed");
       }
     } catch (err) {
-      setError("Calculation request failed");
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        setError("Calculation request failed");
+      }
     } finally {
-      setIsCalculating(false);
+      if (!signal?.aborted) setIsCalculating(false);
     }
-  }, [selectedPlayer, selectedMarket, line, side, americanOdds, includeOppositeOdds, oppositeOdds, evidenceWindow, selectedOpponent]);
+  }, [selectedPlayer, selectedMarket, line, side, pricingMode, americanOdds, includeOppositeOdds, oppositeOdds, predictionMarketPriceCents, predictionMarketCommissionPct, evidenceWindow, selectedOpponent]);
 
-  // Re-run whenever inputs change — reactive analysis is intentional for 30-sec UX
+  // Re-run after 300ms of input stability — the Phase 1 abuse/performance guard.
   useEffect(() => {
-    if (selectedPlayer) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- executeAnalysis sets isCalculating/result state on data fetch
-      executeAnalysis();
-    }
-  }, [executeAnalysis, selectedPlayer, selectedMarket, line, side, americanOdds, includeOppositeOdds, oppositeOdds, evidenceWindow, selectedOpponent]);
+    if (!selectedPlayer) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void executeAnalysis(controller.signal);
+    }, 300);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [executeAnalysis, selectedPlayer]);
 
   // Save Immutable Snapshot
   const handleSaveSnapshot = async () => {
@@ -249,6 +276,9 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
           historicalStatus: analysis.evidence.historicalStatus,
           evidenceWindow: analysis.evidence.window,
           opponentAbbr: analysis.evidence.opponentAbbr,
+          pricingMode: analysis.odds.pricingMode,
+          predictionMarketPriceCents: analysis.odds.predictionMarketPriceCents,
+          predictionMarketCommissionPct: analysis.odds.predictionMarketCommissionPct,
           gameEvidence: analysis.evidence.gameLogs,
         }),
       });
@@ -460,74 +490,158 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
           </div>
         </div>
 
-        {/* STEP 3: Sportsbook American Odds */}
+        {/* STEP 3: Price Source & Commission */}
         <div className="space-y-2.5 pt-2 border-t border-slate-800/80">
           <div className="flex justify-between items-center text-xs font-bold text-slate-300">
             <span className="flex items-center space-x-1.5">
               <span className="w-5 h-5 rounded-full bg-sky-500/20 text-sky-400 flex items-center justify-center text-[10px]">3</span>
-              <span>Sportsbook American Odds</span>
+              <span>{pricingMode === "sportsbook" ? "Sportsbook American Odds" : "Prediction Market Price"}</span>
             </span>
             <span className="text-slate-400 text-[11px] font-mono">
-              Break-Even: {analysis ? analysis.odds.breakEvenPercent : "52.4%"}
+              Break-Even: {analysis ? analysis.odds.breakEvenPercent : pricingMode === "sportsbook" ? "52.4%" : "56.5%"}
             </span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5">
-            {[-125, -120, -115, -110, +100, +115].map((preset) => (
-              <button
-                type="button"
-                key={preset}
-                onClick={() => setAmericanOdds(preset)}
-                className={`py-1.5 px-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer ${
-                  americanOdds === preset
-                    ? "bg-amber-500 text-slate-950 shadow-md"
-                    : "bg-slate-800/60 text-slate-300 hover:bg-slate-700/80 border border-slate-700/60"
-                }`}
-              >
-                {preset > 0 ? `+${preset}` : preset}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 pt-1">
-            <div className="flex items-center space-x-2">
-              <span className="text-xs text-slate-400">Custom Odds:</span>
-              <input
-                type="number"
-                value={americanOdds}
-                onChange={(e) => setAmericanOdds(parseInt(e.target.value, 10) || -110)}
-                placeholder="-110"
-                className="w-24 text-center font-mono font-bold text-white bg-slate-950 border border-slate-800 rounded-lg py-1 text-xs focus:outline-none focus:border-amber-500"
-              />
-            </div>
-
-            {/* No-Vig Option */}
+          <div className="grid grid-cols-2 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800" role="group" aria-label="Price source">
             <button
               type="button"
-              onClick={() => setIncludeOppositeOdds(!includeOppositeOdds)}
-              className={`text-xs px-2.5 py-1 rounded-lg border flex items-center space-x-1.5 transition-colors cursor-pointer ${
-                includeOppositeOdds
-                  ? "bg-indigo-500/20 border-indigo-500/50 text-indigo-300"
-                  : "bg-slate-800/40 border-slate-700/50 text-slate-400 hover:text-slate-200"
+              aria-pressed={pricingMode === "sportsbook"}
+              onClick={() => setPricingMode("sportsbook")}
+              className={`py-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                pricingMode === "sportsbook"
+                  ? "bg-amber-500 text-slate-950 shadow-md"
+                  : "text-slate-400 hover:text-slate-200"
               }`}
             >
-              <SlidersHorizontal className="w-3 h-3" />
-              <span>{includeOppositeOdds ? "No-Vig Enabled" : "+ Add Opposite Odds (No-Vig)"}</span>
+              Sportsbook · -110
             </button>
-
-            {includeOppositeOdds && (
-              <div className="flex items-center space-x-2 animate-in fade-in">
-                <span className="text-xs text-slate-400">Opposite Side Odds:</span>
-                <input
-                  type="number"
-                  value={oppositeOdds}
-                  onChange={(e) => setOppositeOdds(parseInt(e.target.value, 10) || -110)}
-                  placeholder="-110"
-                  className="w-20 text-center font-mono font-bold text-white bg-slate-950 border border-slate-800 rounded-lg py-1 text-xs focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-            )}
+            <button
+              type="button"
+              aria-pressed={pricingMode === "prediction_market"}
+              onClick={() => setPricingMode("prediction_market")}
+              className={`py-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                pricingMode === "prediction_market"
+                  ? "bg-indigo-400 text-slate-950 shadow-md"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              Prediction · 56¢ + 2%
+            </button>
           </div>
+
+          {pricingMode === "sportsbook" ? (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5">
+                {[-125, -120, -115, -110, +100, +115].map((preset) => (
+                  <button
+                    type="button"
+                    key={preset}
+                    onClick={() => setAmericanOdds(preset)}
+                    className={`py-1.5 px-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer ${
+                      americanOdds === preset
+                        ? "bg-amber-500 text-slate-950 shadow-md"
+                        : "bg-slate-800/60 text-slate-300 hover:bg-slate-700/80 border border-slate-700/60"
+                    }`}
+                  >
+                    {preset > 0 ? `+${preset}` : preset}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <label className="flex items-center space-x-2">
+                  <span className="text-xs text-slate-400">Custom Odds:</span>
+                  <input
+                    aria-label="Custom American odds"
+                    type="number"
+                    value={americanOdds}
+                    onChange={(e) => setAmericanOdds(parseInt(e.target.value, 10) || -110)}
+                    placeholder="-110"
+                    className="w-24 text-center font-mono font-bold text-white bg-slate-950 border border-slate-800 rounded-lg py-1 text-xs focus:outline-none focus:border-amber-500"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => setIncludeOppositeOdds(!includeOppositeOdds)}
+                  aria-pressed={includeOppositeOdds}
+                  className={`text-xs px-2.5 py-1 rounded-lg border flex items-center space-x-1.5 transition-colors cursor-pointer ${
+                    includeOppositeOdds
+                      ? "bg-indigo-500/20 border-indigo-500/50 text-indigo-300"
+                      : "bg-slate-800/40 border-slate-700/50 text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <SlidersHorizontal className="w-3 h-3" />
+                  <span>{includeOppositeOdds ? "No-Vig Enabled" : "+ Add Opposite Odds (No-Vig)"}</span>
+                </button>
+
+                {includeOppositeOdds && (
+                  <label className="flex items-center space-x-2 animate-in fade-in">
+                    <span className="text-xs text-slate-400">Opposite:</span>
+                    <input
+                      aria-label="Opposite American odds"
+                      type="number"
+                      value={oppositeOdds}
+                      onChange={(e) => setOppositeOdds(parseInt(e.target.value, 10) || -110)}
+                      placeholder="-110"
+                      className="w-20 text-center font-mono font-bold text-white bg-slate-950 border border-indigo-500/40 rounded-lg py-1 text-xs focus:outline-none focus:border-indigo-500"
+                    />
+                  </label>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="space-y-3 rounded-xl border border-indigo-500/25 bg-indigo-950/20 p-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[40, 50, 56, 60, 65].map((preset) => (
+                  <button
+                    type="button"
+                    key={preset}
+                    onClick={() => setPredictionMarketPriceCents(preset)}
+                    className={`py-1.5 px-3 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer ${
+                      predictionMarketPriceCents === preset
+                        ? "bg-indigo-400 text-slate-950 shadow-md"
+                        : "bg-slate-800/70 text-slate-300 hover:bg-slate-700 border border-slate-700/60"
+                    }`}
+                  >
+                    {preset}¢
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center space-x-2">
+                  <span className="text-xs text-slate-300">Contract price:</span>
+                  <input
+                    aria-label="Prediction market contract price in cents"
+                    type="number"
+                    min="1"
+                    max="99"
+                    step="1"
+                    value={predictionMarketPriceCents}
+                    onChange={(e) => setPredictionMarketPriceCents(Math.min(99, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                    className="w-20 text-center font-mono font-bold text-white bg-slate-950 border border-slate-700 rounded-lg py-1 text-xs focus:outline-none focus:border-indigo-400"
+                  />
+                </label>
+                <label className="flex items-center space-x-2">
+                  <span className="text-xs text-slate-300">Commission:</span>
+                  <input
+                    aria-label="Prediction market commission percentage"
+                    type="number"
+                    min="0"
+                    max="25"
+                    step="0.1"
+                    value={predictionMarketCommissionPct}
+                    onChange={(e) => setPredictionMarketCommissionPct(Math.min(25, Math.max(0, parseFloat(e.target.value) || 0)))}
+                    className="w-20 text-center font-mono font-bold text-white bg-slate-950 border border-slate-700 rounded-lg py-1 text-xs focus:outline-none focus:border-indigo-400"
+                  />
+                  <span className="text-xs text-slate-400">%</span>
+                </label>
+              </div>
+              <p className="text-[10px] text-slate-400 leading-relaxed">
+                Commission is charged on winning contract profit. At {predictionMarketPriceCents}¢ + {predictionMarketCommissionPct.toFixed(1)}%, effective break-even is {(calculatePredictionMarketBreakEvenProbability(predictionMarketPriceCents, predictionMarketCommissionPct) * 100).toFixed(1)}%. This is a price comparison, not a forecast or wagering instruction.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* STEP 4: Evidence Window */}
@@ -603,7 +717,7 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 pt-0.5">
-                  Prop: <strong className="text-slate-200">{analysis.side.toUpperCase()} {analysis.line} {analysis.market.label}</strong> · Odds: <strong className="text-amber-400">{analysis.odds.americanOdds > 0 ? `+${analysis.odds.americanOdds}` : analysis.odds.americanOdds}</strong>
+                  Prop: <strong className="text-slate-200">{analysis.side.toUpperCase()} {analysis.line} {analysis.market.label}</strong> · {analysis.odds.pricingMode === "prediction_market" ? "Price" : "Odds"}: <strong className="text-amber-400">{analysis.odds.pricingMode === "prediction_market" ? `${analysis.odds.predictionMarketPriceCents}¢ + ${analysis.odds.predictionMarketCommissionPct}%` : analysis.odds.americanOdds > 0 ? `+${analysis.odds.americanOdds}` : analysis.odds.americanOdds}</strong>
                 </p>
               </div>
 
@@ -650,7 +764,7 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
                   {analysis.odds.breakEvenPercent}
                 </div>
                 <p className="text-[10px] text-slate-400">
-                  Required win % at {analysis.odds.americanOdds > 0 ? `+${analysis.odds.americanOdds}` : analysis.odds.americanOdds} odds
+                  Required win % at {analysis.odds.pricingMode === "prediction_market" ? `${analysis.odds.predictionMarketPriceCents}¢ after commission` : `${analysis.odds.americanOdds > 0 ? `+${analysis.odds.americanOdds}` : analysis.odds.americanOdds} odds`}
                 </p>
               </div>
 
@@ -702,7 +816,7 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
                   </span>
                 </div>
                 <p className="text-[10px] text-slate-400 leading-relaxed">
-                  Calculated return on a $100 baseline IF the historical hit rate ({analysis.evidence.hitRatePercent}) were the future win rate. Descriptive illustration only; not a forecast.
+                  Calculated return on a $100 baseline at the selected {analysis.odds.pricingMode === "prediction_market" ? "contract price" : "sportsbook price"} IF the historical hit rate ({analysis.evidence.hitRatePercent}) were the future win rate. Descriptive illustration only; not a forecast.
                 </p>
               </div>
 

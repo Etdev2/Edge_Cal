@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, isDatabaseConfigured } from "@/db";
 import { analysisSnapshots } from "@/db/schema";
 import { desc } from "drizzle-orm";
+import { ageRequiredResponse, hasAgeConfirmation } from "@/lib/server/guards";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!hasAgeConfirmation(request)) return ageRequiredResponse();
+
   try {
     const body = await request.json();
     const {
@@ -49,6 +52,9 @@ export async function POST(request: NextRequest) {
       side,
       americanOdds,
       oppositeOdds,
+      pricingMode = "sportsbook",
+      predictionMarketPriceCents,
+      predictionMarketCommissionPct,
       breakEvenProb,
       noVigProb,
       vigPercent,
@@ -92,6 +98,15 @@ export async function POST(request: NextRequest) {
       side,
       americanOdds: parseInt(americanOdds, 10),
       oppositeOdds: oppositeOdds ? parseInt(oppositeOdds, 10) : null,
+      pricingMode: pricingMode === "prediction_market" ? "prediction_market" : "sportsbook",
+      predictionMarketPriceCents:
+        predictionMarketPriceCents !== undefined && predictionMarketPriceCents !== null
+          ? parseInt(predictionMarketPriceCents, 10)
+          : null,
+      predictionMarketCommissionPct:
+        predictionMarketCommissionPct !== undefined && predictionMarketCommissionPct !== null
+          ? parseFloat(predictionMarketCommissionPct)
+          : null,
       breakEvenProb: parseFloat(breakEvenProb),
       noVigProb: noVigProb ? parseFloat(noVigProb) : null,
       vigPercent: vigPercent ? parseFloat(vigPercent) : null,

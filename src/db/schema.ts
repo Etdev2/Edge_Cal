@@ -79,8 +79,11 @@ export const analysisSnapshots = pgTable("analysis_snapshots", {
   market: text("market").notNull(), // PTS, REB, AST, 3PM, PRA, etc.
   line: doublePrecision("line").notNull(),
   side: text("side").notNull(), // 'over' | 'under'
-  americanOdds: integer("american_odds").notNull(), // e.g. -110, +125
+  americanOdds: integer("american_odds").notNull(), // legacy sportsbook quote, e.g. -110
   oppositeOdds: integer("opposite_odds"), // optional opposite side odds
+  pricingMode: text("pricing_mode").default("sportsbook").notNull(), // sportsbook | prediction_market
+  predictionMarketPriceCents: integer("prediction_market_price_cents"), // 1–99¢ when selected
+  predictionMarketCommissionPct: doublePrecision("prediction_market_commission_pct"), // fee on winning profit
   breakEvenProb: doublePrecision("break_even_prob").notNull(),
   noVigProb: doublePrecision("no_vig_prob"),
   vigPercent: doublePrecision("vig_percent"),

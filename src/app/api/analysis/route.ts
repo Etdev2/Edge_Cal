@@ -8,6 +8,14 @@ import {
   calculateHypotheticalReturn,
   validateAmericanOdds,
 } from "@/lib/domain/odds";
+import {
+  calculatePredictionMarketBreakEvenProbability,
+  calculatePredictionMarketHypotheticalReturn,
+  validatePredictionMarketCommission,
+  validatePredictionMarketPrice,
+} from "@/lib/domain/predictionMarket";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { ageRequiredResponse, hasAgeConfirmation } from "@/lib/server/guards";
 import { calculateHistoricalHitRate } from "@/lib/domain/statistics";
 import { getMarketById } from "@/lib/domain/markets";
 import {
@@ -24,6 +32,8 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  if (!hasAgeConfirmation(request)) return ageRequiredResponse();
+
   try {
     const body = await request.json();
     const {
@@ -33,14 +43,32 @@ export async function POST(request: NextRequest) {
       side = "over",
       americanOdds = -110,
       oppositeOdds,
+      pricingMode = "sportsbook",
+      predictionMarketPriceCents = 56,
+      predictionMarketCommissionPct = 2,
       evidenceWindow = "season",
       opponentAbbr,
     } = body;
+
+    const limit = rateLimit(request, { limit: 30, windowMs: 60_000 });
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { success: false, error: "Analysis rate limit exceeded. Please wait a minute and try again." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(limit.retryAfterSeconds) },
+        }
+      );
+    }
 
     const pid = parseInt(playerId, 10);
     const numericLine = parseFloat(line);
     const numericOdds = parseInt(americanOdds, 10);
     const numericOppositeOdds = oppositeOdds ? parseInt(oppositeOdds, 10) : undefined;
+    const numericPriceCents = Number(predictionMarketPriceCents);
+    const numericCommissionPct = Number(predictionMarketCommissionPct);
+    const validatedPricingMode: "sportsbook" | "prediction_market" =
+      pricingMode === "prediction_market" ? "prediction_market" : "sportsbook";
     const validatedSide: "over" | "under" = side === "under" ? "under" : "over";
     const validatedWindow: EvidenceWindowType = evidenceWindow as EvidenceWindowType;
 
@@ -58,19 +86,37 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const oddsValidation = validateAmericanOdds(numericOdds);
-    if (!oddsValidation.isValid) {
-      return NextResponse.json(
-        { success: false, error: oddsValidation.errorMessage },
-        { status: 400 }
-      );
-    }
+    let breakEvenProb: number;
+    let noVigResult: ReturnType<typeof calculateNoVigProbability> | null = null;
 
-    // Odds math (no DB needed)
-    const breakEvenProb = calculateBreakEvenProbability(numericOdds);
-    let noVigResult = null;
-    if (numericOppositeOdds && validateAmericanOdds(numericOppositeOdds).isValid) {
-      noVigResult = calculateNoVigProbability(numericOdds, numericOppositeOdds);
+    if (validatedPricingMode === "prediction_market") {
+      const priceValidation = validatePredictionMarketPrice(numericPriceCents);
+      const commissionValidation = validatePredictionMarketCommission(numericCommissionPct);
+      if (!priceValidation.isValid || !commissionValidation.isValid) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: priceValidation.errorMessage || commissionValidation.errorMessage,
+          },
+          { status: 400 }
+        );
+      }
+      breakEvenProb = calculatePredictionMarketBreakEvenProbability(
+        numericPriceCents,
+        numericCommissionPct
+      );
+    } else {
+      const oddsValidation = validateAmericanOdds(numericOdds);
+      if (!oddsValidation.isValid) {
+        return NextResponse.json(
+          { success: false, error: oddsValidation.errorMessage },
+          { status: 400 }
+        );
+      }
+      breakEvenProb = calculateBreakEvenProbability(numericOdds);
+      if (numericOppositeOdds && validateAmericanOdds(numericOppositeOdds).isValid) {
+        noVigResult = calculateNoVigProbability(numericOdds, numericOppositeOdds);
+      }
     }
 
     const marketDef = getMarketById(market);
@@ -93,6 +139,9 @@ export async function POST(request: NextRequest) {
         validatedSide,
         numericOdds,
         numericOppositeOdds,
+        pricingMode: validatedPricingMode,
+        predictionMarketPriceCents: numericPriceCents,
+        predictionMarketCommissionPct: numericCommissionPct,
         breakEvenProb,
         noVigResult,
         rawGameEntries,
@@ -195,6 +244,9 @@ export async function POST(request: NextRequest) {
       validatedSide,
       numericOdds,
       numericOppositeOdds,
+      pricingMode: validatedPricingMode,
+      predictionMarketPriceCents: numericPriceCents,
+      predictionMarketCommissionPct: numericCommissionPct,
       breakEvenProb,
       noVigResult,
       rawGameEntries,
@@ -224,6 +276,9 @@ function buildAnalysisResponse(args: {
   validatedSide: "over" | "under";
   numericOdds: number;
   numericOppositeOdds?: number;
+  pricingMode: "sportsbook" | "prediction_market";
+  predictionMarketPriceCents: number;
+  predictionMarketCommissionPct: number;
   breakEvenProb: number;
   noVigResult: ReturnType<typeof calculateNoVigProbability> | null;
   rawGameEntries: RawGameStatEntry[];
@@ -238,6 +293,9 @@ function buildAnalysisResponse(args: {
     validatedSide,
     numericOdds,
     numericOppositeOdds,
+    pricingMode,
+    predictionMarketPriceCents,
+    predictionMarketCommissionPct,
     breakEvenProb,
     noVigResult,
     rawGameEntries,
@@ -265,11 +323,15 @@ function buildAnalysisResponse(args: {
   );
 
   const hitRateGap = statsResult.hitRate - breakEvenProb;
-  const hypotheticalReturn100 = calculateHypotheticalReturn(
-    numericOdds,
-    statsResult.hitRate,
-    100
-  );
+  const hypotheticalReturn100 =
+    pricingMode === "prediction_market"
+      ? calculatePredictionMarketHypotheticalReturn(
+          predictionMarketPriceCents,
+          predictionMarketCommissionPct,
+          statsResult.hitRate,
+          100
+        )
+      : calculateHypotheticalReturn(numericOdds, statsResult.hitRate, 100);
 
   return NextResponse.json({
     success: true,
@@ -292,8 +354,13 @@ function buildAnalysisResponse(args: {
       line: numericLine,
       side: validatedSide,
       odds: {
+        pricingMode,
         americanOdds: numericOdds,
         oppositeOdds: numericOppositeOdds,
+        predictionMarketPriceCents:
+          pricingMode === "prediction_market" ? predictionMarketPriceCents : null,
+        predictionMarketCommissionPct:
+          pricingMode === "prediction_market" ? predictionMarketCommissionPct : null,
         breakEvenProb: Math.round(breakEvenProb * 1000) / 1000,
         breakEvenPercent: `${(breakEvenProb * 100).toFixed(1)}%`,
         noVig: noVigResult

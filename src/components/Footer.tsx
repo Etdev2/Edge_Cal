@@ -80,6 +80,16 @@ export function Footer() {
                   California Legal Review (Ticket #3)
                 </Link>
               </li>
+              <li>
+                <Link href="/privacy" className="hover:text-sky-400 transition-colors">
+                  Privacy &amp; Data Retention
+                </Link>
+              </li>
+              <li>
+                <Link href="/terms" className="hover:text-sky-400 transition-colors">
+                  Beta Terms &amp; Analysis-Only Use
+                </Link>
+              </li>
             </ul>
           </div>
 
