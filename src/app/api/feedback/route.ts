@@ -1,0 +1,75 @@
+import { NextRequest, NextResponse } from "next/server";
+import { db, isDatabaseConfigured } from "@/db";
+import { feedbackSubmissions } from "@/db/schema";
+import { desc } from "drizzle-orm";
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  try {
+    if (!isDatabaseConfigured()) {
+      return NextResponse.json(
+        { success: true, feedback: [], demoMode: true },
+        { status: 200 }
+      );
+    }
+    const rows = await db
+      .select()
+      .from(feedbackSubmissions)
+      .orderBy(desc(feedbackSubmissions.createdAt))
+      .limit(50);
+
+    return NextResponse.json({
+      success: true,
+      feedback: rows,
+    });
+  } catch (error) {
+    console.error("Error fetching feedback:", error);
+    // Return 200 with empty list so `next build` page-data collection never fails
+    return NextResponse.json(
+      { success: true, feedback: [], demoMode: true },
+      { status: 200 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { category = "general", message, userEmail, snapshotId } = body;
+
+    if (!message || message.trim().length === 0) {
+      return NextResponse.json(
+        { success: false, error: "Feedback message cannot be empty" },
+        { status: 400 }
+      );
+    }
+
+    if (!isDatabaseConfigured()) {
+      return NextResponse.json({
+        success: true,
+        demoMode: true,
+        message:
+          "Feedback received in demo mode. Set DATABASE_URL on Vercel to persist it to PostgreSQL.",
+      });
+    }
+
+    await db.insert(feedbackSubmissions).values({
+      category,
+      message: message.trim(),
+      userEmail: userEmail?.trim() || null,
+      snapshotId: snapshotId || null,
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Feedback submitted successfully. Thank you for helping harden the beta!",
+    });
+  } catch (error) {
+    console.error("Error submitting feedback:", error);
+    return NextResponse.json(
+      { success: false, error: "Failed to submit feedback" },
+      { status: 500 }
+    );
+  }
+}
