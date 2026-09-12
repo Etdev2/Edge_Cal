@@ -68,8 +68,8 @@ export async function POST(request: NextRequest) {
       notes,
     } = body;
 
-    // Generate random snapshotId (e.g. snap_abc123)
-    const snapshotId = `snap_${Math.random().toString(36).substring(2, 9)}`;
+    // Generate collision-resistant snapshotId using Web Crypto (Node 16+)
+    const snapshotId = `snap_${crypto.randomUUID().split("-")[0]}`;
 
     if (!isDatabaseConfigured()) {
       return NextResponse.json({
