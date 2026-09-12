@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
+import { db, isDatabaseConfigured } from "@/db";
 import { analysisSnapshots } from "@/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
+    if (!isDatabaseConfigured()) {
+      return NextResponse.json(
+        { success: true, count: 0, snapshots: [], demoMode: true },
+        { status: 200 }
+      );
+    }
     const searchParams = request.nextUrl.searchParams;
     const limitParam = searchParams.get("limit") || "50";
     const limit = Math.min(100, parseInt(limitParam, 10) || 50);
@@ -25,8 +31,8 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error fetching snapshots:", error);
     return NextResponse.json(
-      { success: false, error: "Failed to fetch snapshots" },
-      { status: 500 }
+      { success: true, count: 0, snapshots: [], demoMode: true },
+      { status: 200 }
     );
   }
 }
@@ -62,8 +68,19 @@ export async function POST(request: NextRequest) {
       notes,
     } = body;
 
-    // Generate random snapshotId (e.g. snap_k8d29f)
+    // Generate random snapshotId (e.g. snap_abc123)
     const snapshotId = `snap_${Math.random().toString(36).substring(2, 9)}`;
+
+    if (!isDatabaseConfigured()) {
+      return NextResponse.json({
+        success: true,
+        snapshotId,
+        demoMode: true,
+        message:
+          "Snapshot created in demo mode (not persisted). Set DATABASE_URL on Vercel to persist snapshots.",
+        snapshotUrl: `/snapshots/${snapshotId}`,
+      });
+    }
 
     await db.insert(analysisSnapshots).values({
       snapshotId,

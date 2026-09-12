@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
+import { db, isDatabaseConfigured } from "@/db";
 import { analysisSnapshots } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
@@ -11,6 +11,16 @@ export async function GET(
 ) {
   try {
     const { id } = await context.params;
+    if (!isDatabaseConfigured()) {
+      return NextResponse.json(
+        {
+          success: false,
+          demoMode: true,
+          error: "Snapshot persistence requires DATABASE_URL. This demo snapshot is not stored.",
+        },
+        { status: 404 }
+      );
+    }
     const rows = await db
       .select()
       .from(analysisSnapshots)

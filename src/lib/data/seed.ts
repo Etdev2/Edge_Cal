@@ -1,9 +1,12 @@
-import { db } from "@/db";
+import { db, isDatabaseConfigured } from "@/db";
 import { teams, players, games, playerGameStats } from "@/db/schema";
 import { NBA_TEAMS, NBA_PLAYERS } from "./nbaData";
 import { sql } from "drizzle-orm";
 
 export async function seedDatabaseIfEmpty() {
+  if (!isDatabaseConfigured()) {
+    return { seeded: false, message: "Database not configured — running in demo memory mode" };
+  }
   try {
     const existingTeams = await db.select({ id: teams.id }).from(teams).limit(1);
     if (existingTeams.length > 0) {

@@ -1,30 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
+import { db, isDatabaseConfigured } from "@/db";
 import { players, teams, games, playerGameStats } from "@/db/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import {
   calculateBreakEvenProbability,
   calculateNoVigProbability,
   calculateHypotheticalReturn,
   validateAmericanOdds,
 } from "@/lib/domain/odds";
-import {
-  calculateHistoricalHitRate,
-} from "@/lib/domain/statistics";
+import { calculateHistoricalHitRate } from "@/lib/domain/statistics";
 import { getMarketById } from "@/lib/domain/markets";
 import {
   filterAndSettleEvidence,
-  EvidenceWindowType,
-  RawGameStatEntry,
+  type EvidenceWindowType,
+  type RawGameStatEntry,
 } from "@/lib/domain/evidence";
 import { seedDatabaseIfEmpty } from "@/lib/data/seed";
+import {
+  generateFallbackGameLogs,
+  getFallbackPlayerHeader,
+} from "@/lib/data/memoryFallback";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
-    await seedDatabaseIfEmpty();
-
     const body = await request.json();
     const {
       playerId,
@@ -65,6 +65,44 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Odds math (no DB needed)
+    const breakEvenProb = calculateBreakEvenProbability(numericOdds);
+    let noVigResult = null;
+    if (numericOppositeOdds && validateAmericanOdds(numericOppositeOdds).isValid) {
+      noVigResult = calculateNoVigProbability(numericOdds, numericOppositeOdds);
+    }
+
+    const marketDef = getMarketById(market);
+    const statExtractor = (row: RawGameStatEntry) => marketDef.extractValue(row);
+
+    // Demo memory mode — no DATABASE_URL (e.g. Vercel build or unconfigured env)
+    if (!isDatabaseConfigured()) {
+      const header = getFallbackPlayerHeader(pid);
+      if (!header) {
+        return NextResponse.json(
+          { success: false, error: "Player not found" },
+          { status: 404 }
+        );
+      }
+      const rawGameEntries = generateFallbackGameLogs(pid);
+      return buildAnalysisResponse({
+        player: header,
+        marketDef,
+        numericLine,
+        validatedSide,
+        numericOdds,
+        numericOppositeOdds,
+        breakEvenProb,
+        noVigResult,
+        rawGameEntries,
+        validatedWindow,
+        opponentAbbr,
+        demoMode: true,
+      });
+    }
+
+    await seedDatabaseIfEmpty();
 
     // 1. Fetch player and team
     const playerRows = await db
@@ -144,100 +182,25 @@ export async function POST(request: NextRequest) {
       isOvertime: r.isOvertime,
     }));
 
-    // 3. Market extractor
-    const marketDef = getMarketById(market);
-    const statExtractor = (row: RawGameStatEntry) => marketDef.extractValue(row);
-
-    // 4. Odds Calculations
-    const breakEvenProb = calculateBreakEvenProbability(numericOdds);
-
-    let noVigResult = null;
-    if (numericOppositeOdds && validateAmericanOdds(numericOppositeOdds).isValid) {
-      noVigResult = calculateNoVigProbability(numericOdds, numericOppositeOdds);
-    }
-
-    // 5. Filter and Settle Evidence
-    const settlement = filterAndSettleEvidence(
+    return buildAnalysisResponse({
+      player: {
+        id: player.id,
+        fullName: player.fullName,
+        position: player.position ?? "",
+        jerseyNumber: player.jerseyNumber ?? "",
+        teamAbbr: player.teamAbbr ?? "TEAM",
+      },
+      marketDef,
+      numericLine,
+      validatedSide,
+      numericOdds,
+      numericOppositeOdds,
+      breakEvenProb,
+      noVigResult,
       rawGameEntries,
       validatedWindow,
       opponentAbbr,
-      statExtractor,
-      numericLine,
-      validatedSide
-    );
-
-    // 6. Statistics Calculation
-    const statsResult = calculateHistoricalHitRate(
-      settlement.statValues,
-      numericLine,
-      validatedSide,
-      breakEvenProb
-    );
-
-    // 7. Hit-rate gap & hypothetical return
-    const hitRateGap = statsResult.hitRate - breakEvenProb;
-    const hypotheticalReturn100 = calculateHypotheticalReturn(
-      numericOdds,
-      statsResult.hitRate,
-      100
-    );
-
-    return NextResponse.json({
-      success: true,
-      analysis: {
-        player: {
-          id: player.id,
-          fullName: player.fullName,
-          position: player.position,
-          jerseyNumber: player.jerseyNumber,
-          teamAbbr: player.teamAbbr,
-        },
-        market: {
-          id: marketDef.id,
-          code: marketDef.code,
-          label: marketDef.label,
-          unit: marketDef.unit,
-          isDerived: marketDef.isDerived,
-        },
-        line: numericLine,
-        side: validatedSide,
-        odds: {
-          americanOdds: numericOdds,
-          oppositeOdds: numericOppositeOdds,
-          breakEvenProb: Math.round(breakEvenProb * 1000) / 1000,
-          breakEvenPercent: `${(breakEvenProb * 100).toFixed(1)}%`,
-          noVig: noVigResult
-            ? {
-                sideNoVigProb: Math.round(noVigResult.sideNoVigProb * 1000) / 1000,
-                sideNoVigPercent: `${(noVigResult.sideNoVigProb * 100).toFixed(1)}%`,
-                vigPercent: `${noVigResult.vigPercent.toFixed(2)}%`,
-              }
-            : null,
-        },
-        evidence: {
-          window: validatedWindow,
-          opponentAbbr: opponentAbbr || null,
-          totalGamesInWindow: settlement.eligibleGames.length,
-          dnpExcludedCount: settlement.dnpGamesCount,
-          lowMinuteGamesCount: settlement.lowMinuteGamesCount,
-          wins: statsResult.wins,
-          losses: statsResult.losses,
-          pushes: statsResult.pushes,
-          eligibleGames: statsResult.eligibleGames,
-          hitRate: Math.round(statsResult.hitRate * 1000) / 1000,
-          hitRatePercent: `${(statsResult.hitRate * 100).toFixed(1)}%`,
-          hitRateGap: Math.round(hitRateGap * 1000) / 1000,
-          hitRateGapPoints: `${(hitRateGap * 100 > 0 ? "+" : "")}${(hitRateGap * 100).toFixed(1)}%`,
-          uncertaintyInterval: statsResult.uncertaintyInterval,
-          uncertaintyIntervalFormatted: `[${(statsResult.uncertaintyInterval.lower * 100).toFixed(1)}% – ${(statsResult.uncertaintyInterval.upper * 100).toFixed(1)}%]`,
-          historicalStatus: statsResult.historicalStatus,
-          statusReason: statsResult.statusReason,
-          hypotheticalReturn100,
-          gameLogs: settlement.eligibleGames,
-          source: "BALLDONTLIE_API (Normalized & Cached)",
-          fetchedAt: new Date().toISOString(),
-        },
-      },
+      demoMode: false,
     });
   } catch (error) {
     console.error("Analysis calculation error:", error);
@@ -246,4 +209,126 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+function buildAnalysisResponse(args: {
+  player: {
+    id: number;
+    fullName: string;
+    position: string;
+    jerseyNumber: string;
+    teamAbbr: string;
+  };
+  marketDef: ReturnType<typeof getMarketById>;
+  numericLine: number;
+  validatedSide: "over" | "under";
+  numericOdds: number;
+  numericOppositeOdds?: number;
+  breakEvenProb: number;
+  noVigResult: ReturnType<typeof calculateNoVigProbability> | null;
+  rawGameEntries: RawGameStatEntry[];
+  validatedWindow: EvidenceWindowType;
+  opponentAbbr?: string;
+  demoMode: boolean;
+}) {
+  const {
+    player,
+    marketDef,
+    numericLine,
+    validatedSide,
+    numericOdds,
+    numericOppositeOdds,
+    breakEvenProb,
+    noVigResult,
+    rawGameEntries,
+    validatedWindow,
+    opponentAbbr,
+    demoMode,
+  } = args;
+
+  const statExtractor = (row: RawGameStatEntry) => marketDef.extractValue(row);
+
+  const settlement = filterAndSettleEvidence(
+    rawGameEntries,
+    validatedWindow,
+    opponentAbbr,
+    statExtractor,
+    numericLine,
+    validatedSide
+  );
+
+  const statsResult = calculateHistoricalHitRate(
+    settlement.statValues,
+    numericLine,
+    validatedSide,
+    breakEvenProb
+  );
+
+  const hitRateGap = statsResult.hitRate - breakEvenProb;
+  const hypotheticalReturn100 = calculateHypotheticalReturn(
+    numericOdds,
+    statsResult.hitRate,
+    100
+  );
+
+  return NextResponse.json({
+    success: true,
+    demoMode,
+    analysis: {
+      player: {
+        id: player.id,
+        fullName: player.fullName,
+        position: player.position,
+        jerseyNumber: player.jerseyNumber,
+        teamAbbr: player.teamAbbr,
+      },
+      market: {
+        id: marketDef.id,
+        code: marketDef.code,
+        label: marketDef.label,
+        unit: marketDef.unit,
+        isDerived: marketDef.isDerived,
+      },
+      line: numericLine,
+      side: validatedSide,
+      odds: {
+        americanOdds: numericOdds,
+        oppositeOdds: numericOppositeOdds,
+        breakEvenProb: Math.round(breakEvenProb * 1000) / 1000,
+        breakEvenPercent: `${(breakEvenProb * 100).toFixed(1)}%`,
+        noVig: noVigResult
+          ? {
+              sideNoVigProb: Math.round(noVigResult.sideNoVigProb * 1000) / 1000,
+              sideNoVigPercent: `${(noVigResult.sideNoVigProb * 100).toFixed(1)}%`,
+              vigPercent: `${noVigResult.vigPercent.toFixed(2)}%`,
+            }
+          : null,
+      },
+      evidence: {
+        window: validatedWindow,
+        opponentAbbr: opponentAbbr || null,
+        totalGamesInWindow: settlement.eligibleGames.length,
+        dnpExcludedCount: settlement.dnpGamesCount,
+        lowMinuteGamesCount: settlement.lowMinuteGamesCount,
+        wins: statsResult.wins,
+        losses: statsResult.losses,
+        pushes: statsResult.pushes,
+        eligibleGames: statsResult.eligibleGames,
+        hitRate: Math.round(statsResult.hitRate * 1000) / 1000,
+        hitRatePercent: `${(statsResult.hitRate * 100).toFixed(1)}%`,
+        hitRateGap: Math.round(hitRateGap * 1000) / 1000,
+        hitRateGapPoints: `${hitRateGap * 100 > 0 ? "+" : ""}${(hitRateGap * 100).toFixed(1)}%`,
+        uncertaintyInterval: statsResult.uncertaintyInterval,
+        uncertaintyIntervalFormatted: `[${(statsResult.uncertaintyInterval.lower * 100).toFixed(1)}% – ${(statsResult.uncertaintyInterval.upper * 100).toFixed(1)}%]`,
+        historicalStatus: statsResult.historicalStatus,
+        statusReason: statsResult.statusReason,
+        hypotheticalReturn100,
+        gameLogs: settlement.eligibleGames,
+        source: demoMode
+          ? "Demo memory dataset (set DATABASE_URL for PostgreSQL persistence)"
+          : "BALLDONTLIE_API (Normalized & Cached)",
+        fetchedAt: new Date().toISOString(),
+      },
+    },
+  });
 }
