@@ -208,9 +208,10 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
     }
   }, [selectedPlayer, selectedMarket, line, side, americanOdds, includeOppositeOdds, oppositeOdds, evidenceWindow, selectedOpponent]);
 
-  // Re-run whenever inputs change
+  // Re-run whenever inputs change — reactive analysis is intentional for 30-sec UX
   useEffect(() => {
     if (selectedPlayer) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- executeAnalysis sets isCalculating/result state on data fetch
       executeAnalysis();
     }
   }, [executeAnalysis, selectedPlayer, selectedMarket, line, side, americanOdds, includeOppositeOdds, oppositeOdds, evidenceWindow, selectedOpponent]);

@@ -1,5 +1,6 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect -- age gate hydration reads localStorage post-mount, intentional client-only pattern */
 import { useState, useEffect } from "react";
 import { ShieldAlert, CheckCircle2 } from "lucide-react";
 
