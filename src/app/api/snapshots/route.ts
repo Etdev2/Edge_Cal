@@ -1,17 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, isDatabaseConfigured } from "@/db";
-import { analysisSnapshots } from "@/db/schema";
+import { analysisSnapshots, SPORT_IDS, DEFAULT_SPORT, type SportId } from "@/db/schema";
 import { desc } from "drizzle-orm";
 import { ageRequiredResponse, hasAgeConfirmation } from "@/lib/server/guards";
 
 export const dynamic = "force-dynamic";
+
+const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
+
+function parseSport(value: unknown): SportId {
+  const v = String(value ?? "").toLowerCase();
+  return (SPORT_IDS as string[]).includes(v) ? (v as SportId) : DEFAULT_SPORT;
+}
 
 export async function GET(request: NextRequest) {
   try {
     if (!isDatabaseConfigured()) {
       return NextResponse.json(
         { success: true, count: 0, snapshots: [], demoMode: true },
-        { status: 200 }
+        { status: 200, headers: NO_STORE_HEADERS }
       );
     }
     const searchParams = request.nextUrl.searchParams;
@@ -24,16 +31,15 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(analysisSnapshots.createdAt))
       .limit(limit);
 
-    return NextResponse.json({
-      success: true,
-      count: rows.length,
-      snapshots: rows,
-    });
+    return NextResponse.json(
+      { success: true, count: rows.length, snapshots: rows },
+      { headers: NO_STORE_HEADERS }
+    );
   } catch (error) {
     console.error("Error fetching snapshots:", error);
     return NextResponse.json(
       { success: true, count: 0, snapshots: [], demoMode: true },
-      { status: 200 }
+      { status: 200, headers: NO_STORE_HEADERS }
     );
   }
 }
@@ -44,6 +50,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const {
+      sport: sportParam,
       playerId,
       playerName,
       playerTeam,
@@ -78,18 +85,22 @@ export async function POST(request: NextRequest) {
     const snapshotId = `snap_${crypto.randomUUID().split("-")[0]}`;
 
     if (!isDatabaseConfigured()) {
-      return NextResponse.json({
-        success: true,
-        snapshotId,
-        demoMode: true,
-        message:
-          "Snapshot created in demo mode (not persisted). Set DATABASE_URL on Vercel to persist snapshots.",
-        snapshotUrl: `/snapshots/${snapshotId}`,
-      });
+      return NextResponse.json(
+        {
+          success: true,
+          snapshotId,
+          demoMode: true,
+          message:
+            "Snapshot created in demo mode (not persisted). Set DATABASE_URL on Vercel to persist snapshots.",
+          snapshotUrl: `/snapshots/${snapshotId}`,
+        },
+        { headers: NO_STORE_HEADERS }
+      );
     }
 
     await db.insert(analysisSnapshots).values({
       snapshotId,
+      sport: parseSport(sportParam),
       playerId: parseInt(playerId, 10),
       playerName,
       playerTeam: playerTeam || "NBA",
@@ -127,17 +138,20 @@ export async function POST(request: NextRequest) {
       notes: notes || null,
     });
 
-    return NextResponse.json({
-      success: true,
-      snapshotId,
-      message: "Immutable analysis snapshot successfully saved.",
-      snapshotUrl: `/snapshots/${snapshotId}`,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        snapshotId,
+        message: "Immutable analysis snapshot successfully saved.",
+        snapshotUrl: `/snapshots/${snapshotId}`,
+      },
+      { headers: NO_STORE_HEADERS }
+    );
   } catch (error) {
     console.error("Error creating snapshot:", error);
     return NextResponse.json(
       { success: false, error: "Failed to create snapshot" },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }

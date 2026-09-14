@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, isDatabaseConfigured } from "@/db";
-import { players, teams, games, playerGameStats } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { players, teams, games, playerGameStats, SPORT_IDS, DEFAULT_SPORT, type SportId } from "@/db/schema";
+import { eq, desc, and } from "drizzle-orm";
 import {
   calculateBreakEvenProbability,
   calculateNoVigProbability,
@@ -31,6 +31,13 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const STALE_DATA_WARNING_MS = 24 * 60 * 60 * 1000; // warn when data is >24h old
+
+function parseSport(value: unknown): SportId {
+  const v = String(value ?? "").toLowerCase();
+  return (SPORT_IDS as string[]).includes(v) ? (v as SportId) : DEFAULT_SPORT;
+}
+
 export async function POST(request: NextRequest) {
   if (!hasAgeConfirmation(request)) return ageRequiredResponse();
 
@@ -38,6 +45,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       playerId,
+      sport: sportParam,
       market = "PTS",
       line = 24.5,
       side = "over",
@@ -62,6 +70,7 @@ export async function POST(request: NextRequest) {
     }
 
     const pid = parseInt(playerId, 10);
+    const sport = parseSport(sportParam);
     const numericLine = parseFloat(line);
     const numericOdds = parseInt(americanOdds, 10);
     const numericOppositeOdds = oppositeOdds ? parseInt(oppositeOdds, 10) : undefined;
@@ -119,20 +128,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const marketDef = getMarketById(market);
-    const statExtractor = (row: RawGameStatEntry) => marketDef.extractValue(row);
+    const marketDef = getMarketById(market, sport);
 
     // Demo memory mode — no DATABASE_URL (e.g. Vercel build or unconfigured env)
     if (!isDatabaseConfigured()) {
-      const header = getFallbackPlayerHeader(pid);
+      const header = getFallbackPlayerHeader(pid, sport);
       if (!header) {
         return NextResponse.json(
-          { success: false, error: "Player not found" },
+          { success: false, error: `Player not found in the ${sport.toUpperCase()} demo dataset` },
           { status: 404 }
         );
       }
-      const rawGameEntries = generateFallbackGameLogs(pid);
+      const rawGameEntries = generateFallbackGameLogs(pid, sport);
       return buildAnalysisResponse({
+        sport,
         player: header,
         marketDef,
         numericLine,
@@ -153,10 +162,11 @@ export async function POST(request: NextRequest) {
 
     await seedDatabaseIfEmpty();
 
-    // 1. Fetch player and team
+    // 1. Fetch player and team (scoped to the requested sport)
     const playerRows = await db
       .select({
         id: players.id,
+        sport: players.sport,
         fullName: players.fullName,
         position: players.position,
         jerseyNumber: players.jerseyNumber,
@@ -166,10 +176,25 @@ export async function POST(request: NextRequest) {
       })
       .from(players)
       .leftJoin(teams, eq(players.teamId, teams.id))
-      .where(eq(players.id, pid))
+      .where(and(eq(players.id, pid), eq(players.sport, sport)))
       .limit(1);
 
     if (playerRows.length === 0) {
+      // Distinguish "no such player" from "player exists in the other league"
+      const anySport = await db
+        .select({ id: players.id, sport: players.sport })
+        .from(players)
+        .where(eq(players.id, pid))
+        .limit(1);
+      if (anySport.length > 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Player ${anySport[0].sport.toUpperCase()} roster does not match the requested ${sport.toUpperCase()} analysis`,
+          },
+          { status: 400 }
+        );
+      }
       return NextResponse.json(
         { success: false, error: "Player not found" },
         { status: 404 }
@@ -178,7 +203,7 @@ export async function POST(request: NextRequest) {
 
     const player = playerRows[0];
 
-    // 2. Fetch all raw player game stats with opponent team info
+    // 2. Fetch all raw player game stats with opponent team info (sport-scoped)
     const statRows = await db
       .select({
         gameId: playerGameStats.gameId,
@@ -197,15 +222,30 @@ export async function POST(request: NextRequest) {
         fg3m: playerGameStats.fg3m,
         blk: playerGameStats.blk,
         stl: playerGameStats.stl,
+        passYds: playerGameStats.passYds,
+        passTd: playerGameStats.passTd,
+        passInt: playerGameStats.passInt,
+        rushYds: playerGameStats.rushYds,
+        rushTd: playerGameStats.rushTd,
+        rec: playerGameStats.rec,
+        recYds: playerGameStats.recYds,
+        recTd: playerGameStats.recTd,
         turnover: playerGameStats.turnover,
         isDnp: playerGameStats.isDnp,
         lowMinutesFlag: playerGameStats.lowMinutesFlag,
         isOvertime: games.isOvertime,
+        fetchedAt: playerGameStats.fetchedAt,
       })
       .from(playerGameStats)
       .innerJoin(games, eq(playerGameStats.gameId, games.id))
       .innerJoin(teams, eq(playerGameStats.opponentTeamId, teams.id))
-      .where(eq(playerGameStats.playerId, pid))
+      .where(
+        and(
+          eq(playerGameStats.playerId, pid),
+          eq(playerGameStats.sport, sport),
+          eq(games.sport, sport)
+        )
+      )
       .orderBy(desc(games.gameDate));
 
     const rawGameEntries: RawGameStatEntry[] = statRows.map((r) => ({
@@ -225,13 +265,23 @@ export async function POST(request: NextRequest) {
       fg3m: r.fg3m,
       blk: r.blk,
       stl: r.stl,
+      passYds: r.passYds,
+      passTd: r.passTd,
+      passInt: r.passInt,
+      rushYds: r.rushYds,
+      rushTd: r.rushTd,
+      rec: r.rec,
+      recYds: r.recYds,
+      recTd: r.recTd,
       turnover: r.turnover,
       isDnp: r.isDnp,
       lowMinutesFlag: r.lowMinutesFlag,
       isOvertime: r.isOvertime,
+      fetchedAt: r.fetchedAt?.toISOString?.() ?? r.fetchedAt,
     }));
 
     return buildAnalysisResponse({
+      sport,
       player: {
         id: player.id,
         fullName: player.fullName,
@@ -264,6 +314,7 @@ export async function POST(request: NextRequest) {
 }
 
 function buildAnalysisResponse(args: {
+  sport: SportId;
   player: {
     id: number;
     fullName: string;
@@ -287,6 +338,7 @@ function buildAnalysisResponse(args: {
   demoMode: boolean;
 }) {
   const {
+    sport,
     player,
     marketDef,
     numericLine,
@@ -333,10 +385,23 @@ function buildAnalysisResponse(args: {
         )
       : calculateHypotheticalReturn(numericOdds, statsResult.hitRate, 100);
 
+  // Data freshness: most recent verified row, and a warning when the cached
+  // evidence is older than 24h (live-data gap surfaced per audit P1-12).
+  const fetchedTimes = rawGameEntries
+    .map((g) => (g.fetchedAt ? new Date(g.fetchedAt).getTime() : NaN))
+    .filter((t) => !isNaN(t));
+  const newestFetchedAt =
+    fetchedTimes.length > 0 ? new Date(Math.max(...fetchedTimes)).toISOString() : null;
+  const staleDataWarning =
+    newestFetchedAt != null &&
+    Date.now() - new Date(newestFetchedAt).getTime() > STALE_DATA_WARNING_MS;
+
   return NextResponse.json({
     success: true,
     demoMode,
+    sport,
     analysis: {
+      sport,
       player: {
         id: player.id,
         fullName: player.fullName,
@@ -395,6 +460,8 @@ function buildAnalysisResponse(args: {
           ? "Demo memory dataset (set DATABASE_URL for PostgreSQL persistence)"
           : "BALLDONTLIE_API (Normalized & Cached)",
         fetchedAt: new Date().toISOString(),
+        dataAsOf: newestFetchedAt,
+        staleDataWarning,
       },
     },
   });

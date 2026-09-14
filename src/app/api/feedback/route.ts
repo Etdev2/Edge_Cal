@@ -5,12 +5,14 @@ import { desc } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
+const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
+
 export async function GET() {
   try {
     if (!isDatabaseConfigured()) {
       return NextResponse.json(
         { success: true, feedback: [], demoMode: true },
-        { status: 200 }
+        { status: 200, headers: NO_STORE_HEADERS }
       );
     }
     const rows = await db
@@ -19,16 +21,16 @@ export async function GET() {
       .orderBy(desc(feedbackSubmissions.createdAt))
       .limit(50);
 
-    return NextResponse.json({
-      success: true,
-      feedback: rows,
-    });
+    return NextResponse.json(
+      { success: true, feedback: rows },
+      { headers: NO_STORE_HEADERS }
+    );
   } catch (error) {
     console.error("Error fetching feedback:", error);
     // Return 200 with empty list so `next build` page-data collection never fails
     return NextResponse.json(
       { success: true, feedback: [], demoMode: true },
-      { status: 200 }
+      { status: 200, headers: NO_STORE_HEADERS }
     );
   }
 }

@@ -77,16 +77,28 @@ export interface RawGameStatEntry {
   opponentScore?: number;
   min: string; // "36:42" or "0:00"
   minutesNumeric: number;
+  // NBA box-score fields (0 for NFL rows)
   pts: number;
   reb: number;
   ast: number;
   fg3m: number;
   blk: number;
   stl: number;
+  // NFL box-score fields (0/absent for NBA rows)
+  passYds?: number;
+  passTd?: number;
+  passInt?: number;
+  rushYds?: number;
+  rushTd?: number;
+  rec?: number;
+  recYds?: number;
+  recTd?: number;
   turnover?: number;
   isDnp: boolean;
   lowMinutesFlag: boolean;
   isOvertime?: boolean;
+  /** When the data layer knows when the row was last verified. */
+  fetchedAt?: string;
 }
 
 export interface SettledGameLogItem extends RawGameStatEntry {

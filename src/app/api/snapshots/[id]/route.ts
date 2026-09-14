@@ -6,6 +6,8 @@ import { ageRequiredResponse, hasAgeConfirmation } from "@/lib/server/guards";
 
 export const dynamic = "force-dynamic";
 
+const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
+
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -21,7 +23,7 @@ export async function GET(
           demoMode: true,
           error: "Snapshot persistence requires DATABASE_URL. This demo snapshot is not stored.",
         },
-        { status: 404 }
+        { status: 404, headers: NO_STORE_HEADERS }
       );
     }
     const rows = await db
@@ -33,19 +35,19 @@ export async function GET(
     if (rows.length === 0) {
       return NextResponse.json(
         { success: false, error: "Snapshot not found" },
-        { status: 404 }
+        { status: 404, headers: NO_STORE_HEADERS }
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      snapshot: rows[0],
-    });
+    return NextResponse.json(
+      { success: true, snapshot: rows[0] },
+      { headers: NO_STORE_HEADERS }
+    );
   } catch (error) {
     console.error("Error fetching snapshot:", error);
     return NextResponse.json(
       { success: false, error: "Failed to load snapshot" },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }
