@@ -14,9 +14,37 @@ export const GLOSSARY_TERMS: GlossaryTerm[] = [
   {
     term: "Player prop",
     definition:
-      "A market on whether an NBA player's recorded performance statistic finishes over or under a stated line.",
+      "A market on whether an NBA or NFL player's recorded performance statistic finishes over or under a stated line.",
     avoid: ["Pick", "Lock", "Sure bet"],
     complianceNotes: "Neutral market term; never frame as a betting recommendation.",
+  },
+  {
+    term: "Expected value (EV)",
+    definition:
+      "The arithmetic return per unit of stake if a stated win probability were exact: p × b − (1 − p), where b is the net profit per dollar on a win at the selected price. Describes the price and the assumed probability, not the future.",
+    avoid: ["Guaranteed profit", "Expected edge", "ROI"],
+    complianceNotes: "Computed from user-supplied inputs; an illustration, not a forecast.",
+  },
+  {
+    term: "Kelly criterion",
+    definition:
+      "The stake fraction f* = (p × b − (1 − p)) / b that maximizes long-run bankroll growth if the win probability p is exactly right. Because real probabilities are estimates, the tool applies a user-selected fraction (default quarter Kelly) and a hard maximum-stake cap.",
+    avoid: ["Optimal bet size", "Safe bet size"],
+    complianceNotes: "Framed as a sizing formula on user inputs; never presented as an instruction to wager.",
+  },
+  {
+    term: "Stake sizing (illustrative)",
+    definition:
+      "The application of the Kelly criterion at a user-selected fraction, capped at a user-selected maximum share of bankroll, to an EV computed from the analysis price and a win probability (historical hit rate by default, or the user's own estimate). It is an arithmetic illustration, not a recommendation.",
+    avoid: ["Bet size recommendation", "Play", "Pick"],
+    complianceNotes: "Requires the 21+ confirmation; output is always labeled illustrative and never a forecast.",
+  },
+  {
+    term: "Bankroll",
+    definition:
+      "The total amount of money a user allocates to this activity, entered and stored only in the user's own browser. It is never transmitted to the server and never persisted in any analysis snapshot.",
+    avoid: ["Balance", "Wagering account"],
+    complianceNotes: "Client-side only (ADR 0005); the server stores no financial data.",
   },
   {
     term: "Analysis",

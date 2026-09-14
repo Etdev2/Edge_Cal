@@ -221,6 +221,8 @@ export const WAYFINDER_TICKETS: WayfinderTicketData[] = [
   },
 ];
 
+const CACHE_HEADERS = { "Cache-Control": "public, s-maxage=300" };
+
 export async function GET() {
   return NextResponse.json({
     mapTitle: "NBA Historical Edge Calculator Beta",
@@ -232,5 +234,5 @@ export async function GET() {
       inProgress: WAYFINDER_TICKETS.filter((t) => t.state === "in_progress").length,
       open: WAYFINDER_TICKETS.filter((t) => t.state === "open").length,
     },
-  });
+  }, { headers: CACHE_HEADERS });
 }

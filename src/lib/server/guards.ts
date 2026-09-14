@@ -14,7 +14,7 @@ export function ageRequiredResponse(): NextResponse {
       error: "Confirm that you are 21 or older before requesting analysis.",
       code: "AGE_CONFIRMATION_REQUIRED",
     },
-    { status: 403 }
+    { status: 403, headers: { "Cache-Control": "no-store" } }
   );
 }
 

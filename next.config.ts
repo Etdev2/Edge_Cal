@@ -33,16 +33,9 @@ const nextConfig: NextConfig = {
           },
         ],
       },
-      {
-        // API responses should never be cached by browsers unless explicitly set per-route
-        source: "/api/:path*",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "no-store",
-          },
-        ],
-      },
+      // NOTE: API Cache-Control is set explicitly per route (sensitive routes
+      // no-store, read-only data endpoints short CDN caches). A global /api/*
+      // no-store would override the route-level headers.
     ];
   },
 };

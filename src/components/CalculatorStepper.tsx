@@ -17,8 +17,9 @@ import {
   SlidersHorizontal,
   DollarSign,
 } from "lucide-react";
-import { SUPPORTED_MARKETS, getMarketById } from "@/lib/domain/markets";
+import { getMarketsBySport, getMarketById } from "@/lib/domain/markets";
 import { EVIDENCE_WINDOWS, EvidenceWindowType } from "@/lib/domain/evidence";
+import { StakeSizingCard } from "./StakeSizingCard";
 import {
   calculatePredictionMarketBreakEvenProbability,
   DEFAULT_PREDICTION_MARKET_COMMISSION_PERCENT,
@@ -42,7 +43,10 @@ interface TeamItem {
   fullName: string;
 }
 
+type Sport = "nba" | "nfl";
+
 interface AnalysisResult {
+  sport: Sport;
   player: {
     id: number;
     fullName: string;
@@ -99,6 +103,8 @@ interface AnalysisResult {
     gameLogs: any[];
     source: string;
     fetchedAt: string;
+    dataAsOf: string | null;
+    staleDataWarning: boolean;
   };
 }
 
@@ -110,6 +116,7 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerItem | null>(null);
+  const [sport, setSport] = useState<Sport>("nba");
 
   const [selectedMarket, setSelectedMarket] = useState("PTS");
   const [line, setLine] = useState<number>(24.5);
@@ -137,17 +144,19 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
   const [isSavingSnapshot, setIsSavingSnapshot] = useState(false);
   const [shareToast, setShareToast] = useState(false);
 
-  // Load initial players & teams
+  // Load initial players & teams for the active sport
   useEffect(() => {
+    let cancelled = false;
     async function loadInitialData() {
       try {
         const [playersRes, teamsRes] = await Promise.all([
-          fetch("/api/players"),
-          fetch("/api/teams"),
+          fetch(`/api/players?sport=${sport}`),
+          fetch(`/api/teams?sport=${sport}`),
         ]);
         const pData = await playersRes.json();
         const tData = await teamsRes.json();
 
+        if (cancelled) return;
         if (pData.success && pData.players) {
           setPlayersList(pData.players);
           if (initialPlayerId) {
@@ -165,18 +174,35 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
           }
         }
       } catch (err) {
-        console.error("Failed to load players/teams:", err);
+        if (!cancelled) console.error("Failed to load players/teams:", err);
       } finally {
-        setIsLoadingPlayers(false);
+        if (!cancelled) setIsLoadingPlayers(false);
       }
     }
     loadInitialData();
-  }, [initialPlayerId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [sport, initialPlayerId]);
+
+  // Switch league: reset the downstream selections so NBA/NFL state never mixes
+  const handleSportChange = (next: Sport) => {
+    if (next === sport) return;
+    setSport(next);
+    setSelectedPlayer(null);
+    setSearchQuery("");
+    setAnalysis(null);
+    setError(null);
+    setSavedSnapshotId(null);
+    const firstMarket = getMarketsBySport(next)[0];
+    setSelectedMarket(firstMarket.id);
+    setLine(firstMarket.defaultLine);
+  };
 
   // Update default line when market changes
   const handleMarketChange = (mId: string) => {
     setSelectedMarket(mId);
-    const m = getMarketById(mId);
+    const m = getMarketById(mId, sport);
     setLine(m.defaultLine);
   };
 
@@ -191,6 +217,7 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
     try {
       const payload: Record<string, unknown> = {
         playerId: selectedPlayer.id,
+        sport,
         market: selectedMarket,
         line,
         side,
@@ -228,7 +255,7 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
     } finally {
       if (!signal?.aborted) setIsCalculating(false);
     }
-  }, [selectedPlayer, selectedMarket, line, side, pricingMode, americanOdds, includeOppositeOdds, oppositeOdds, predictionMarketPriceCents, predictionMarketCommissionPct, evidenceWindow, selectedOpponent]);
+  }, [sport, selectedPlayer, selectedMarket, line, side, pricingMode, americanOdds, includeOppositeOdds, oppositeOdds, predictionMarketPriceCents, predictionMarketCommissionPct, evidenceWindow, selectedOpponent]);
 
   // Re-run after 300ms of input stability — the Phase 1 abuse/performance guard.
   useEffect(() => {
@@ -253,6 +280,7 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          sport: analysis.sport,
           playerId: selectedPlayer.id,
           playerName: selectedPlayer.fullName,
           playerTeam: selectedPlayer.teamAbbr,
@@ -309,7 +337,7 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
     p.teamAbbr.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const currentMarketDef = getMarketById(selectedMarket);
+  const currentMarketDef = getMarketById(selectedMarket, sport);
 
   return (
     <div className="space-y-6">
@@ -328,12 +356,40 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
           </div>
         </div>
 
+        {/* SPORT SWITCH: NBA / NFL — the whole flow is league-scoped */}
+        <div className="grid grid-cols-2 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800" role="group" aria-label="Sport">
+          <button
+            type="button"
+            aria-pressed={sport === "nba"}
+            onClick={() => handleSportChange("nba")}
+            className={`py-2 rounded-lg font-black text-sm transition-all cursor-pointer ${
+              sport === "nba"
+                ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-slate-950 shadow-md scale-[1.01]"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            🏀 NBA
+          </button>
+          <button
+            type="button"
+            aria-pressed={sport === "nfl"}
+            onClick={() => handleSportChange("nfl")}
+            className={`py-2 rounded-lg font-black text-sm transition-all cursor-pointer ${
+              sport === "nfl"
+                ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-md scale-[1.01]"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            🏈 NFL
+          </button>
+        </div>
+
         {/* STEP 1: Select Player */}
         <div className="space-y-2">
           <div className="flex justify-between items-center text-xs font-bold text-slate-300">
             <span className="flex items-center space-x-1.5">
               <span className="w-5 h-5 rounded-full bg-sky-500/20 text-sky-400 flex items-center justify-center text-[10px]">1</span>
-              <span>Select NBA Player</span>
+              <span>Select {sport === "nfl" ? "NFL" : "NBA"} Player</span>
             </span>
             {selectedPlayer && (
               <span className="text-sky-400 font-mono">
@@ -368,7 +424,11 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search player or team (e.g. Jokic, Luka, Edwards, OKC)..."
+                placeholder={
+                  sport === "nfl"
+                    ? "Search player or team (e.g. Allen, Mahomes, Chase, KC)..."
+                    : "Search player or team (e.g. Jokic, Luka, Edwards, OKC)..."
+                }
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500 transition-colors"
               />
             </div>
@@ -411,8 +471,8 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
           </div>
 
           {/* Market Chips */}
-          <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
-            {SUPPORTED_MARKETS.map((m) => (
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+            {getMarketsBySport(sport).map((m) => (
               <button
                 type="button"
                 key={m.id}
@@ -835,6 +895,17 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
               )}
             </div>
 
+            {/* Bankroll / Stake Sizing (illustrative) */}
+            <StakeSizingCard
+              pricingMode={analysis.odds.pricingMode}
+              americanOdds={analysis.odds.americanOdds}
+              predictionMarketPriceCents={analysis.odds.predictionMarketPriceCents}
+              predictionMarketCommissionPct={analysis.odds.predictionMarketCommissionPct}
+              breakEvenProb={analysis.odds.breakEvenProb}
+              hitRate={analysis.evidence.hitRate}
+              hitRatePercent={analysis.evidence.hitRatePercent}
+            />
+
             {/* Game Logs Evidence Component */}
             <GameLogsList
               games={analysis.evidence.gameLogs}
@@ -847,9 +918,23 @@ export function CalculatorStepper({ initialPlayerId }: { initialPlayerId?: numbe
             <div className="pt-4 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
               <div className="flex items-center space-x-2 text-slate-400 text-[11px]">
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>Source: {analysis.evidence.source}</span>
+                <span>
+                  {analysis.sport.toUpperCase()} · Source: {analysis.evidence.source}
+                </span>
                 <span>•</span>
                 <span>All Games Final</span>
+                {analysis.evidence.staleDataWarning ? (
+                  <span className="inline-flex items-center space-x-1 text-amber-400">
+                    <Clock className="w-3 h-3" />
+                    <span>
+                      Cached {analysis.evidence.dataAsOf ? `as of ${new Date(analysis.evidence.dataAsOf).toLocaleDateString()}` : ""} — over 24h old
+                    </span>
+                  </span>
+                ) : analysis.evidence.dataAsOf ? (
+                  <span>
+                    • Data as of {new Date(analysis.evidence.dataAsOf).toLocaleDateString()}
+                  </span>
+                ) : null}
               </div>
 
               <div className="flex items-center space-x-2">

@@ -1,6 +1,6 @@
 # Edge Calculator
 
-Edge Calculator is a decision-support product for comparing NBA player-prop prices with historical evidence and, in a future validated model, predictive estimates.
+Edge Calculator is a decision-support product for comparing NBA and NFL player-prop prices with historical evidence, sizing illustrative stakes from a user's own bankroll and win-probability inputs, and, in a future validated model, predictive estimates.
 
 ## Language
 
@@ -63,6 +63,22 @@ _Avoid_: Prediction range, guaranteed range
 **Analysis snapshot**:
 A preserved record of an analysis's inputs, evidence, result, source, and time. A later recalculation is a new analysis rather than a revision of the snapshot.
 _Avoid_: Live analysis
+
+**Expected value (EV)**:
+The arithmetic return per unit of stake if a stated win probability were exact: p × b − (1 − p), where b is the net profit per dollar on a win at the selected price. It describes the price and the assumed probability, not the future.
+_Avoid_: Guaranteed profit, Expected edge
+
+**Kelly criterion**:
+The stake fraction f* = (p × b − (1 − p)) / b that maximizes long-run bankroll growth if the win probability p is exactly right. Because real probabilities are estimates, the tool applies a user-selected fraction (default quarter Kelly) and a hard maximum-stake cap.
+_Avoid_: Optimal bet size, Safe bet size
+
+**Stake sizing (illustrative)**:
+The application of the Kelly criterion at a user-selected fraction, capped at a user-selected maximum share of bankroll, to an EV computed from the analysis price and a win probability (historical hit rate by default, or the user's own estimate). It is an arithmetic illustration, not a recommendation.
+_Avoid_: Bet size recommendation, Play, Pick
+
+**Bankroll**:
+The total amount of money a user allocates to this activity, entered and stored only in the user's own browser. It is never transmitted to the server and never persisted in any analysis snapshot.
+_Avoid_: Balance, Wagering account
 
 **Estimated probability**:
 A future validated predictive model's forecast of the probability that a player prop will win.

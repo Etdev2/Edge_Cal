@@ -167,3 +167,132 @@ describe("evidence filtering and settlement", () => {
     expect(ids).toContain("away");
   });
 });
+
+describe("NFL evidence settlement (same canonical semantics)", () => {
+  const nflGame = (overrides: Partial<Parameters<typeof filterAndSettleEvidence>[0][number]> = {}) => ({
+    gameId: 1,
+    gameDate: "2026-09-20",
+    season: 2026,
+    seasonType: "regular",
+    isHome: true,
+    opponentAbbr: "KC",
+    opponentName: "Kansas City Chiefs",
+    teamAbbr: "BUF",
+    min: "55:00",
+    minutesNumeric: 55,
+    pts: 0,
+    reb: 0,
+    ast: 0,
+    fg3m: 0,
+    blk: 0,
+    stl: 0,
+    passYds: 270,
+    passTd: 2,
+    passInt: 1,
+    rushYds: 40,
+    rushTd: 0,
+    rec: 1,
+    recYds: 8,
+    recTd: 0,
+    isDnp: false,
+    lowMinutesFlag: false,
+    ...overrides,
+  });
+
+  it("settles NFL passing-yard lines over/under", () => {
+    const games = [
+      nflGame({ gameId: 1, passYds: 300 }),
+      nflGame({ gameId: 2, passYds: 255 }),
+      nflGame({ gameId: 3, passYds: 200 }),
+    ];
+    const result = filterAndSettleEvidence(
+      games,
+      "season",
+      undefined,
+      (r) => r.passYds ?? 0,
+      255.5,
+      "over"
+    );
+    expect(result.eligibleGames[0].outcome).toBe("win");
+    expect(result.eligibleGames[1].outcome).toBe("loss");
+    expect(result.eligibleGames[2].outcome).toBe("loss");
+  });
+
+  it("pushes when an NFL stat equals an integer line", () => {
+    const games = [
+      nflGame({ gameId: 1, passYds: 255 }),
+      nflGame({ gameId: 2, passYds: 256 }),
+      nflGame({ gameId: 3, passYds: 254 }),
+    ];
+    const result = filterAndSettleEvidence(
+      games,
+      "season",
+      undefined,
+      (r) => r.passYds ?? 0,
+      255,
+      "over"
+    );
+    expect(result.eligibleGames[0].outcome).toBe("push");
+    expect(result.eligibleGames[1].outcome).toBe("win");
+    expect(result.eligibleGames[2].outcome).toBe("loss");
+  });
+
+  it("derives TD market values from pass+rush+rec components", () => {
+    const games = [
+      nflGame({ gameId: 1, passTd: 2, rushTd: 1, recTd: 0 }),
+      nflGame({ gameId: 2, passTd: 1, rushTd: 0, recTd: 0 }),
+      nflGame({ gameId: 3, passTd: 0, rushTd: 0, recTd: 0 }),
+    ];
+    const result = filterAndSettleEvidence(
+      games,
+      "season",
+      undefined,
+      (r) => (r.passTd ?? 0) + (r.rushTd ?? 0) + (r.recTd ?? 0),
+      1.5,
+      "over"
+    );
+    expect(result.eligibleGames[0].outcome).toBe("win"); // 3 > 1.5
+    expect(result.eligibleGames[1].outcome).toBe("loss"); // 1 < 1.5
+    expect(result.eligibleGames[2].outcome).toBe("loss"); // 0 < 1.5
+  });
+
+  it("excludes NFL DNPs and flags limited-activity weeks but keeps them", () => {
+    const result = filterAndSettleEvidence(
+      [
+        nflGame({ gameId: 1, isDnp: true, min: "0:00", minutesNumeric: 0, passYds: 0 }),
+        nflGame({
+          gameId: 2,
+          min: "12:30",
+          minutesNumeric: 12.5,
+          passYds: 120,
+        }),
+      ],
+      "season",
+      undefined,
+      (r) => r.passYds ?? 0,
+      255.5,
+      "over"
+    );
+    expect(result.dnpGamesCount).toBe(1);
+    expect(result.lowMinuteGamesCount).toBe(1);
+    expect(result.eligibleGames).toHaveLength(1);
+    expect(result.eligibleGames[0].lowMinutesFlag).toBe(true);
+  });
+
+  it("keeps evidence windows league-agnostic (vs_opponent works for NFL)", () => {
+    const games = [
+      nflGame({ gameId: 1, opponentAbbr: "KC" }),
+      nflGame({ gameId: 2, opponentAbbr: "MIA" }),
+      nflGame({ gameId: 3, opponentAbbr: "KC" }),
+    ];
+    const result = filterAndSettleEvidence(
+      games,
+      "vs_opponent",
+      "KC",
+      (r) => r.passYds ?? 0,
+      255.5,
+      "over"
+    );
+    expect(result.eligibleGames).toHaveLength(2);
+  });
+});

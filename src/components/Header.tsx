@@ -15,6 +15,7 @@ import {
   Sparkles,
   BarChart3,
   PhoneCall,
+  Wallet,
 } from "lucide-react";
 import { GitHubAccessModal } from "./GitHubAccessModal";
 import { FeedbackModal } from "./FeedbackModal";
@@ -26,12 +27,13 @@ export function Header() {
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
 
   const navLinks = [
-    { href: "/", label: "Calculator", icon: Activity, badge: "30s Flow" },
-    { href: "/wayfinder", label: "Wayfinder", icon: Compass, badge: "10 Tickets" },
-    { href: "/agents", label: "Agents Swarm", icon: Bot, badge: "6 Agents" },
-    { href: "/explorer", label: "NBA Roster", icon: BarChart3 },
+    { href: "/", label: "Calculator", icon: Activity, badge: "NBA+NFL" },
+    { href: "/bankroll", label: "Bankroll", icon: Wallet, badge: "EV·Kelly" },
+    { href: "/explorer", label: "Roster", icon: BarChart3 },
     { href: "/snapshots", label: "Snapshots", icon: Bookmark },
-    { href: "/compliance", label: "Compliance & 21+", icon: ShieldCheck },
+    { href: "/agents", label: "Agents", icon: Bot, badge: "6" },
+    { href: "/wayfinder", label: "Wayfinder", icon: Compass, badge: "10" },
+    { href: "/compliance", label: "Compliance", icon: ShieldCheck },
   ];
 
   return (
@@ -86,7 +88,7 @@ export function Header() {
                     </span>
                   </div>
                   <span className="text-[10px] text-slate-400 -mt-1 font-medium hidden xs:block">
-                    NBA Player-Prop Historical Evidence
+                    NBA + NFL Player-Prop Historical Evidence
                   </span>
                 </div>
               </Link>

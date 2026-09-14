@@ -17,6 +17,13 @@ export default function PrivacyPage() {
         <p>
           When a tester saves an analysis, the app may store the selected player, market, line, price, historical evidence, source, and timestamp as an immutable snapshot. The snapshot does not represent a forecast or a wagering instruction.
         </p>
+        <p>
+          <strong className="text-slate-200">Bankroll data never leaves your browser.</strong> The Bankroll
+          page (bankroll amount, Kelly fraction, and maximum-stake cap) and any manual
+          win-probability override are stored only in your browser&apos;s localStorage under this
+          site. They are not transmitted to our servers, are not part of any analysis snapshot, and
+          are not shared across devices. Clearing your browser site data removes them.
+        </p>
       </section>
 
       <section className="space-y-3">
@@ -29,7 +36,10 @@ export default function PrivacyPage() {
       <section className="space-y-3">
         <h2 className="text-lg font-bold text-white">Data sources</h2>
         <p>
-          Historical game records are labeled with their source and fetch time. Demo mode uses synthetic records and is clearly labeled. We do not sell personal information or use snapshots to make decisions about a person.
+          Historical game records (NBA and NFL) are labeled with their source, fetch time, and a
+          freshness warning when the cached evidence is more than 24 hours old. Demo mode uses
+          clearly-labeled synthetic records when no database is configured. We do not sell personal
+          information or use snapshots to make decisions about a person.
         </p>
       </section>
 

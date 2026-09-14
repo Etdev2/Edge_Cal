@@ -29,14 +29,16 @@ export default function HomePage() {
           </div>
 
           <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight">
-            NBA Player-Prop <br className="hidden sm:inline" />
+            NBA + NFL Player-Prop <br className="hidden sm:inline" />
             <span className="bg-gradient-to-r from-sky-400 via-indigo-300 to-amber-300 bg-clip-text text-transparent">
               Historical Evidence Comparator
             </span>
           </h1>
 
           <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-2xl">
-            Compare manually entered NBA player-prop prices with licensed historical box scores, 95% Wilson Score uncertainty intervals, and push-settled evidence in under 30 seconds.
+            Compare manually entered NBA and NFL player-prop prices with historical box scores, 95%
+            Wilson Score uncertainty intervals, push-settled evidence, and bankroll-based stake
+            sizing (EV + fractional Kelly) — in under 30 seconds.
           </p>
 
           <div className="flex flex-wrap items-center gap-3 pt-2 text-xs">
@@ -46,7 +48,15 @@ export default function HomePage() {
             </div>
             <div className="flex items-center space-x-1.5 text-slate-300 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700/60">
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span>🏀 NBA + 🏈 NFL Props</span>
+            </div>
+            <div className="flex items-center space-x-1.5 text-slate-300 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700/60">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
               <span>Wilson Score 95% Range</span>
+            </div>
+            <div className="flex items-center space-x-1.5 text-slate-300 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700/60">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span>Bankroll · EV · Kelly Sizing</span>
             </div>
             <div className="flex items-center space-x-1.5 text-slate-300 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700/60">
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />

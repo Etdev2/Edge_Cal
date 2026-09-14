@@ -165,6 +165,8 @@ export const EXPERT_AGENTS_TEAM: ExpertAgent[] = [
   },
 ];
 
+const CACHE_HEADERS = { "Cache-Control": "public, s-maxage=300" };
+
 export async function GET() {
   return NextResponse.json({
     teamName: "Edge Calculator Expert Agent Swarm",
@@ -176,5 +178,5 @@ export async function GET() {
       completedTickets: 10,
       tracerBulletState: "green",
     },
-  });
+  }, { headers: CACHE_HEADERS });
 }

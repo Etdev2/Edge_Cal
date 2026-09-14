@@ -99,6 +99,24 @@ export default function CompliancePage() {
             </p>
           </div>
         </div>
+
+        {/* Stake sizing boundary (Bankroll feature) */}
+        <div className="p-4 bg-indigo-950/20 border border-indigo-500/25 rounded-xl space-y-1.5">
+          <div className="flex items-center space-x-2 text-indigo-300 font-bold text-xs">
+            <FileText className="w-4 h-4" />
+            <span>Stake Sizing Boundary (Bankroll Tool)</span>
+          </div>
+          <p className="text-[11px] text-slate-400 leading-relaxed">
+            The Bankroll page and per-analysis stake card compute Expected Value and Kelly-based
+            stakes from <strong className="text-slate-200">user-supplied inputs only</strong> (bankroll,
+            Kelly fraction, cap, and optionally a personal win-probability estimate). Output is
+            always labeled <strong className="text-slate-200">illustrative</strong> — never a forecast,
+            prediction, or wager instruction. Bankroll data is stored <strong className="text-slate-200">only in the
+            user&apos;s browser</strong> (localStorage): it is not transmitted to the server, not stored in
+            snapshots, and not shared across devices (ADR 0005). No wager placement, cashout, or
+            sportsbook link exists anywhere in the product.
+          </p>
+        </div>
       </div>
 
       {/* Interactive Compliance Text Scanner */}

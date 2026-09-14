@@ -1,8 +1,18 @@
 import { pgTable, text, serial, integer, doublePrecision, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 
+/**
+ * Sports supported by the calculator. Currently NBA (2025-26) and NFL (2026
+ * season). The `sport` column on teams/players/games/stats keeps the two
+ * leagues fully partitioned so evidence windows never mix leagues.
+ */
+export type SportId = "nba" | "nfl";
+export const SPORT_IDS: SportId[] = ["nba", "nfl"];
+export const DEFAULT_SPORT: SportId = "nba";
+
 export const teams = pgTable("teams", {
   id: serial("id").primaryKey(),
   externalId: integer("external_id").unique(),
+  sport: text("sport").default("nba").notNull(), // 'nba' | 'nfl'
   abbreviation: text("abbreviation").notNull().unique(),
   city: text("city").notNull(),
   name: text("name").notNull(),
@@ -16,6 +26,7 @@ export const teams = pgTable("teams", {
 export const players = pgTable("players", {
   id: serial("id").primaryKey(),
   externalId: integer("external_id").unique(),
+  sport: text("sport").default("nba").notNull(), // denormalized from team for cheap filtering
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   fullName: text("full_name").notNull(),
@@ -31,6 +42,7 @@ export const players = pgTable("players", {
 export const games = pgTable("games", {
   id: serial("id").primaryKey(),
   externalId: integer("external_id").unique(),
+  sport: text("sport").default("nba").notNull(), // 'nba' | 'nfl'
   gameDate: text("game_date").notNull(), // YYYY-MM-DD
   season: integer("season").notNull(),
   seasonType: text("season_type").default("regular").notNull(), // regular, playoffs, ist, playin
@@ -49,15 +61,27 @@ export const playerGameStats = pgTable("player_game_stats", {
   gameId: integer("game_id").references(() => games.id).notNull(),
   teamId: integer("team_id").references(() => teams.id).notNull(),
   opponentTeamId: integer("opponent_team_id").references(() => teams.id).notNull(),
+  sport: text("sport").default("nba").notNull(), // 'nba' | 'nfl'
   isHome: boolean("is_home").notNull(),
-  min: text("min").notNull(), // e.g., "34:12"
+  min: text("min").notNull(), // e.g., "34:12" (NFL: total game clock played)
   minutesNumeric: doublePrecision("minutes_numeric").default(0).notNull(),
+  // NBA box-score fields (0 for NFL rows)
   pts: integer("pts").default(0).notNull(),
   reb: integer("reb").default(0).notNull(),
   ast: integer("ast").default(0).notNull(),
   fg3m: integer("fg3m").default(0).notNull(),
   blk: integer("blk").default(0).notNull(),
   stl: integer("stl").default(0).notNull(),
+  // NFL box-score fields (0 for NBA rows)
+  passYds: integer("pass_yds").default(0).notNull(),
+  passTd: integer("pass_td").default(0).notNull(),
+  passInt: integer("pass_int").default(0).notNull(),
+  rushYds: integer("rush_yds").default(0).notNull(),
+  rushTd: integer("rush_td").default(0).notNull(),
+  rec: integer("rec").default(0).notNull(),
+  recYds: integer("rec_yds").default(0).notNull(),
+  recTd: integer("rec_td").default(0).notNull(),
+  // Shared fields
   turnover: integer("turnover").default(0).notNull(),
   pf: integer("pf").default(0).notNull(),
   fga: integer("fga").default(0).notNull(),
@@ -73,6 +97,7 @@ export const playerGameStats = pgTable("player_game_stats", {
 export const analysisSnapshots = pgTable("analysis_snapshots", {
   id: serial("id").primaryKey(),
   snapshotId: text("snapshot_id").notNull().unique(), // e.g. snap_abc123
+  sport: text("sport").default("nba").notNull(), // 'nba' | 'nfl'
   playerId: integer("player_id").references(() => players.id).notNull(),
   playerName: text("player_name").notNull(),
   playerTeam: text("player_team").notNull(),
